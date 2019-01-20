@@ -9,6 +9,8 @@ readme = "README.md"
 edition = "2018"
 
 [dependencies]
+num-traits = "0.2.6"
+num-integer = "0.1.39"
 
 [dev-dependencies]
 proptest = "0.8.7"

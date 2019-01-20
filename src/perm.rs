@@ -3,8 +3,11 @@ use std::cmp::max;
 use std::fmt;
 use std::mem::replace;
 
-use crate::assign::{Assign, AssignFn, AssignFnScratch, AssignValue};
+use num_integer::Integer;
+use num_traits::{FromPrimitive, ToPrimitive};
+
 use crate::action::{LeftAction, RightAction};
+use crate::assign::{Assign, AssignFn, AssignValue};
 use crate::El;
 
 /// A permutation of a finite set.
@@ -157,42 +160,14 @@ impl Perm {
         })
     }
 
-    /// A non-negative power of this permutation.
+    /// A power of this permutation.
     ///
     /// This implementation performs efficient exponentiation by squaring.
-    pub fn upow<'a>(&'a self, exp: usize) -> impl AssignValue<Perm, Perm> + 'a {
-        AssignFnScratch(move |target: &mut Perm, scratch: &mut Perm| match exp {
-            0 => target.clone_from(&Perm::new()),
-            1 => target.clone_from(self),
-            2 => target.assign(self.square()),
-            3 => {
-                target.assign(self.square());
-                self.right_apply_to(target);
-            }
-            _ => {
-                scratch.assign_with_scratch(self.upow(exp / 2), target);
-                target.assign(scratch.square());
-
-                if exp & 1 != 0 {
-                    self.right_apply_to(target);
-                }
-            }
-        })
-    }
-
-    /// An integer pwoer of this permutation.
-    ///
-    /// This implementation performs efficient exponentiation by squaring.
-    pub fn ipow<'a>(&'a self, exp: isize) -> impl AssignValue<Perm, Perm> + 'a {
-        AssignFnScratch(move |target: &mut Perm, scratch: &mut Perm| {
-            let uexp = exp.wrapping_abs() as usize;
-            if exp < 0 {
-                scratch.assign_with_scratch(self.upow(uexp), target);
-                target.assign(scratch.inverse());
-            } else {
-                target.assign_with_scratch(self.upow(uexp), scratch);
-            }
-        })
+    pub fn pow<E>(&self, exponent: E) -> Power<E> {
+        Power {
+            base: self,
+            exponent,
+        }
     }
 
     /// Return the cycle starting at an element.
@@ -460,6 +435,66 @@ impl<'a> Iterator for Cycles<'a> {
     }
 }
 
+pub struct Power<'a, E> {
+    pub base: &'a Perm,
+    pub exponent: E,
+}
+
+impl<'a, E> AssignValue<Perm, Perm> for Power<'a, E>
+where
+    E: Integer + ToPrimitive + FromPrimitive,
+{
+    fn assign_to_with_scratch(self, target: &mut Perm, scratch: &mut Perm) {
+        let Power {
+            base: perm,
+            exponent: mut exp,
+        } = self;
+
+        let neg = exp < E::zero();
+
+        let (target, scratch) = if neg {
+            // We swap the roles of target and scratch so we don't need to swap when doing the final
+            // inversion
+            exp = E::zero() - exp;
+            (scratch, target)
+        } else {
+            (target, scratch)
+        };
+
+        match exp.to_usize() {
+            Some(0) => target.clone_from(&Perm::new()),
+            Some(1) => target.clone_from(perm),
+            Some(2) => target.assign(perm.square()),
+            Some(3) => {
+                target.assign(perm.square());
+                perm.right_apply_to(target);
+            }
+            _ => {
+                let odd = exp.is_odd();
+                let half_exp = exp / E::from_usize(2).unwrap();
+
+                scratch.assign_with_scratch(perm.pow(half_exp), target);
+                target.assign(scratch.square());
+
+                if odd {
+                    perm.right_apply_to(target);
+                }
+            }
+        }
+
+        if neg {
+            // scratch and target are swapped here
+            scratch.assign(target.inverse());
+        }
+    }
+
+    fn get_with_scratch(self, scratch: &mut Perm) -> Perm {
+        let mut result = Perm::new();
+        self.assign_to_with_scratch(&mut result, scratch);
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,12 +635,12 @@ mod tests {
             a in 0..1_000_000usize,
             b in 0..1_000_000usize,
         ) {
-            let perm_a = perm.upow(a).get();
-            let perm_b = perm.upow(b).get();
+            let perm_a = perm.pow(a).get();
+            let perm_b = perm.pow(b).get();
 
             let combined = perm_a.right_apply(perm_b);
 
-            let single = perm.upow(a + b).get();
+            let single = perm.pow(a + b).get();
 
             assert_eq!(combined, single);
         }
@@ -616,12 +651,12 @@ mod tests {
             a in -1_000_000..1_000_000isize,
             b in -1_000_000..1_000_000isize,
         ) {
-            let perm_a = perm.ipow(a).get();
-            let perm_b = perm.ipow(b).get();
+            let perm_a = perm.pow(a).get();
+            let perm_b = perm.pow(b).get();
 
             let combined = perm_a.right_apply(perm_b);
 
-            let single = perm.ipow(a + b).get();
+            let single = perm.pow(a + b).get();
 
             assert_eq!(combined, single);
         }
