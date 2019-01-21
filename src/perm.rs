@@ -113,6 +113,12 @@ impl Perm {
 
             self.perm = perm.into_boxed_slice();
         }
+        // "clear" everything past the new length up to the old length
+        if self.length > length {
+            for (i, p_i) in self.perm[length..self.length].iter_mut().enumerate() {
+                *p_i = (length + i) as El;
+            }
+        }
         self.length = length;
     }
 
@@ -239,38 +245,8 @@ impl Clone for Perm {
     }
 
     fn clone_from(&mut self, other: &Perm) {
-        let mut other_perm = &other.perm[..other.length];
-        if other_perm.len() > self.perm.len() {
-            // perm doesn't fit? Maybe it fits after shrinking?
-            other_perm = other.perm_slice();
-        }
-
-        if other_perm.len() <= self.perm.len() {
-            self.perm[..other_perm.len()].copy_from_slice(other_perm);
-            // After copying perm "clear" everything past it up to our old length
-            if other_perm.len() < self.length {
-                for (i, p_i) in self.perm[other_perm.len()..self.length]
-                    .iter_mut()
-                    .enumerate()
-                {
-                    *p_i = (other_perm.len() + i) as El;
-                }
-            }
-        } else {
-            // Realloc with Vec's resizing strategy
-            let old_length = self.perm.len();
-            let mut perm = replace(&mut self.perm, Box::new([])).into_vec();
-            perm.reserve(other_perm.len() - old_length);
-
-            // Copy other's perm
-            perm.clear();
-            perm.extend_from_slice(other_perm);
-
-            Perm::initialize_excess_capacity(&mut perm);
-
-            self.perm = perm.into_boxed_slice();
-        }
-        self.length = other_perm.len();
+        self.resize_uninitialized(other.length);
+        self.perm[..other.length].copy_from_slice(other.perm_slice());
     }
 }
 
