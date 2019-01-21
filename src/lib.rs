@@ -5,12 +5,11 @@
 //!
 //! This is currently an early work in progress.
 //!
-pub mod assign;
 pub mod action;
+pub mod assign;
 pub mod perm;
 
 /// Set element.
 ///
 /// Set elements are represented by non-negative integers (`u32`).
 pub type El = u32;
-

@@ -3,7 +3,7 @@
 /// Left action on `T`. (Using `S` as scratch space.)
 ///
 /// Elements of implementing types act on `T` values on the left.
-pub trait LeftAction<T, S=()>
+pub trait LeftAction<T, S = ()>
 where
     T: ?Sized,
 {
@@ -40,7 +40,7 @@ where
 /// Right action on `T`. (Using `S` as scratch space.)
 ///
 /// Elements of implementing types act on `T` values on the right.
-pub trait RightAction<T, S=()>
+pub trait RightAction<T, S = ()>
 where
     T: ?Sized,
 {
