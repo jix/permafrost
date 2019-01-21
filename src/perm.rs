@@ -137,6 +137,10 @@ impl Perm {
         &self.perm[..self.length]
     }
 
+    fn perm_slice_mut(&mut self) -> &mut [El] {
+        &mut self.perm[..self.length]
+    }
+
     /// Apply a transposition of two elements on the right.
     pub fn right_transpose(&mut self, a: El, b: El) {
         self.extend_for(max(a, b));
@@ -160,10 +164,7 @@ impl Perm {
 
     /// The square of this permutation.
     pub fn square<'a>(&'a self) -> impl AssignValue<Perm> + 'a {
-        AssignFn(move |target: &mut Perm| {
-            target.clone_from(self);
-            self.right_apply_to(target);
-        })
+        self.compose(self)
     }
 
     /// A power of this permutation.
@@ -174,6 +175,22 @@ impl Perm {
             base: self,
             exponent,
         }
+    }
+
+    /// Compose two permutations.
+    ///
+    /// Applying the resulting permutation is the same as applying `rhs` first and then applying
+    /// `self`.
+    pub fn compose<'a>(&'a self, rhs: &'a Perm) -> impl AssignValue<Perm> + 'a {
+        AssignFn(move |target: &mut Perm| {
+            target.resize_uninitialized(max(self.length, rhs.length));
+
+            for (i, t) in target.perm_slice_mut().iter_mut().enumerate() {
+                *t = self.left_apply(rhs.left_apply(i as El))
+            }
+
+            target.shrink()
+        })
     }
 
     /// Return the cycle starting at an element.
@@ -268,11 +285,11 @@ impl LeftAction<El, ()> for Perm {
     }
 }
 
-/// Composition of a permutation on the right.
+/// Composition of a permutation on the left.
 ///
-/// Unlike composition on the left, this requires no scratch space.
-impl RightAction<Perm, ()> for Perm {
-    fn right_apply_to_with_scratch(&self, perm: &mut Perm, _: &mut ()) {
+/// Unlike composition on the right, this requires no scratch space.
+impl LeftAction<Perm, ()> for Perm {
+    fn left_apply_to_with_scratch(&self, perm: &mut Perm, _: &mut ()) {
         perm.extend_to(self.perm.len());
         for el in perm.perm.iter_mut() {
             self.left_apply_to(el);
@@ -286,8 +303,8 @@ impl RightAction<Perm, ()> for Perm {
 /// For a permutation p, this moves an element of the slice at position i to the position p(i).
 ///
 /// Panics when the permutation's support is out of bounds.
-impl<T> LeftAction<[T], Vec<bool>> for Perm {
-    fn left_apply_to_with_scratch(&self, vec: &mut [T], scratch: &mut Vec<bool>) {
+impl<T> RightAction<[T], Vec<bool>> for Perm {
+    fn right_apply_to_with_scratch(&self, vec: &mut [T], scratch: &mut Vec<bool>) {
         assert!(vec.len() >= self.length);
 
         let mut cycles = self.cycles_with_scratch(replace(scratch, vec![]));
@@ -304,14 +321,14 @@ impl<T> LeftAction<[T], Vec<bool>> for Perm {
     }
 }
 
-/// Composition of a permutation on the left.
+/// Composition of a permutation on the right.
 ///
-/// This is implemented via permutation of a slice's elements. Unlike composition on the right, this
+/// This is implemented via permutation of a slice's elements. Unlike composition on the left, this
 /// requires scratch space and is likely less efficient.
-impl LeftAction<Perm, Vec<bool>> for Perm {
-    fn left_apply_to_with_scratch(&self, perm: &mut Perm, scratch: &mut Vec<bool>) {
+impl RightAction<Perm, Vec<bool>> for Perm {
+    fn right_apply_to_with_scratch(&self, perm: &mut Perm, scratch: &mut Vec<bool>) {
         perm.extend_to(self.length);
-        self.left_apply_to_with_scratch(&mut perm.perm[..], scratch);
+        self.right_apply_to_with_scratch(&mut perm.perm[..], scratch);
     }
 }
 
@@ -443,7 +460,7 @@ where
             Some(2) => target.assign(perm.square()),
             Some(3) => {
                 target.assign(perm.square());
-                perm.right_apply_to(target);
+                perm.left_apply_to(target);
             }
             _ => {
                 let odd = exp.is_odd();
@@ -453,7 +470,7 @@ where
                 target.assign(scratch.square());
 
                 if odd {
-                    perm.right_apply_to(target);
+                    perm.left_apply_to(target);
                 }
             }
         }
@@ -505,18 +522,21 @@ mod tests {
     }
 
     #[test]
-    fn composition_order() {
+    fn composition_order_basic() {
         let a = Perm::from_vec(vec![1, 0]).unwrap();
         let b = Perm::from_vec(vec![2, 3, 0, 1]).unwrap();
 
-        let b_a = Perm::from_vec(vec![2, 3, 1, 0]).unwrap();
-        let a_b = Perm::from_vec(vec![3, 2, 0, 1]).unwrap();
+        let a_b = Perm::from_vec(vec![2, 3, 1, 0]).unwrap();
+        let b_a = Perm::from_vec(vec![3, 2, 0, 1]).unwrap();
 
         assert_eq!(a.right_apply(b.clone()), b_a);
         assert_eq!(b.right_apply(a.clone()), a_b);
 
         assert_eq!(a.left_apply(b.clone()), a_b);
         assert_eq!(b.left_apply(a.clone()), b_a);
+
+        assert_eq!(a.compose(&b).get(), a_b);
+        assert_eq!(b.compose(&a).get(), b_a);
     }
 
     proptest! {
@@ -614,7 +634,7 @@ mod tests {
             let perm_a = perm.pow(a).get();
             let perm_b = perm.pow(b).get();
 
-            let combined = perm_a.right_apply(perm_b);
+            let combined = perm_a.left_apply(perm_b);
 
             let single = perm.pow(a + b).get();
 
@@ -630,7 +650,7 @@ mod tests {
             let perm_a = perm.pow(a).get();
             let perm_b = perm.pow(b).get();
 
-            let combined = perm_a.right_apply(perm_b);
+            let combined = perm_a.left_apply(perm_b);
 
             let single = perm.pow(a + b).get();
 
@@ -641,10 +661,27 @@ mod tests {
             perm_a in random_perm(0..1000u32),
             perm_b in random_perm(0..1000u32),
         ) {
+            let combined_0 = perm_a.compose(&perm_b).get();
             let combined_1 = perm_a.left_apply(perm_b.clone());
             let combined_2 = perm_b.right_apply(perm_a);
 
+            assert_eq!(combined_0, combined_1);
             assert_eq!(combined_1, combined_2);
+        }
+
+        fn composition_order(
+            perm_a in random_perm(0..1000u32),
+            perm_b in random_perm(0..1000u32),
+            perm_c in random_perm(0..1000u32),
+        ) {
+            let abc_1 = perm_a.compose(&perm_b).get().left_apply(perm_c.clone());
+            let abc_2 = perm_a.left_apply(perm_b.left_apply(perm_c.clone()));
+            let abc_3 = perm_c.right_apply(perm_a.compose(&perm_b).get());
+            let abc_4 = perm_b.compose(&perm_c).get().right_apply(perm_a.clone());
+
+            assert_eq!(abc_1, abc_2);
+            assert_eq!(abc_1, abc_3);
+            assert_eq!(abc_1, abc_4);
         }
     }
 }
