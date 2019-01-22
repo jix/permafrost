@@ -275,7 +275,9 @@ impl From<Perm> for Vec<El> {
 }
 
 /// Application of a permutation to an element.
-impl LeftAction<El, ()> for Perm {
+impl LeftAction<El> for Perm {
+    type Scratch = ();
+
     fn left_apply_with_scratch(&self, el: El, _: &mut ()) -> El {
         self.perm.get(el as usize).cloned().unwrap_or(el)
     }
@@ -288,7 +290,9 @@ impl LeftAction<El, ()> for Perm {
 /// Composition of a permutation on the left.
 ///
 /// Unlike composition on the right, this requires no scratch space.
-impl LeftAction<Perm, ()> for Perm {
+impl LeftAction<Perm> for Perm {
+    type Scratch = ();
+
     fn left_apply_to_with_scratch(&self, perm: &mut Perm, _: &mut ()) {
         perm.extend_to(self.perm.len());
         for el in perm.perm.iter_mut() {
@@ -303,7 +307,9 @@ impl LeftAction<Perm, ()> for Perm {
 /// For a permutation p, this moves an element of the slice at position i to the position p(i).
 ///
 /// Panics when the permutation's support is out of bounds.
-impl<T> RightAction<[T], Vec<bool>> for Perm {
+impl<T> RightAction<[T]> for Perm {
+    type Scratch = Vec<bool>;
+
     fn right_apply_to_with_scratch(&self, vec: &mut [T], scratch: &mut Vec<bool>) {
         assert!(vec.len() >= self.length);
 
@@ -325,7 +331,9 @@ impl<T> RightAction<[T], Vec<bool>> for Perm {
 ///
 /// This is implemented via permutation of a slice's elements. Unlike composition on the left, this
 /// requires scratch space and is likely less efficient.
-impl RightAction<Perm, Vec<bool>> for Perm {
+impl RightAction<Perm> for Perm {
+    type Scratch = Vec<bool>;
+
     fn right_apply_to_with_scratch(&self, perm: &mut Perm, scratch: &mut Vec<bool>) {
         perm.extend_to(self.length);
         self.right_apply_to_with_scratch(&mut perm.perm[..], scratch);
@@ -433,10 +441,12 @@ pub struct Power<'a, E> {
     pub exponent: E,
 }
 
-impl<'a, E> AssignValue<Perm, Perm> for Power<'a, E>
+impl<'a, E> AssignValue<Perm> for Power<'a, E>
 where
     E: Integer + ToPrimitive + FromPrimitive,
 {
+    type Scratch = Perm;
+
     fn assign_to_with_scratch(self, target: &mut Perm, scratch: &mut Perm) {
         let Power {
             base: perm,
